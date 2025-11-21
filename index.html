@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebXR Image Tracking with GLB</title>
+  <title>WebXR Image Target Demo</title>
   <style>
     body, html { margin: 0; padding: 0; overflow: hidden; }
     #enter-ar {
@@ -36,7 +36,6 @@ function createScene() {
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
   scene.add(camera);
 
-  // Light
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
   scene.add(light);
 }
@@ -119,10 +118,9 @@ function onXRFrame(time, frame) {
 document.getElementById('enter-ar').addEventListener('click', async () => {
   createScene();
 
-  // Load your GLB model
-  model = await loadModel('model.glb'); // Place your model.glb in the same folder
-  model.scale.set(0.1, 0.1, 0.1); // Adjust scale
-  model.visible = false;           // Hide until image is detected
+  model = await loadModel('anim1.glb'); // replace with your model
+  model.scale.set(0.1, 0.1, 0.1);
+  model.visible = false;
   scene.add(model);
 
   await startAR();
