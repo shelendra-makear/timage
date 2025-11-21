@@ -17,22 +17,23 @@
 <body>
 <button id="enter-ar">Enter AR</button>
 
-<!-- Three.js -->
+<!-- 💡 MUST load this BEFORE any JS that uses THREE -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.min.js"></script>
 
 <script>
-/* --------------------
-   GLOBAL VARIABLES
-----------------------*/
+console.log("THREE =", THREE);  // should NOT be undefined
+
 let xrSession, renderer, scene, camera;
-let box;              // object to attach to the tracked image
-let trackedImage;     // runtime-tracked image info
-let xrRefSpace;       // reference space
+let box;
+let xrRefSpace;
+let trackedImage;
 
 /* --------------------
-   INIT THREE.JS SCENE
+   INIT THREE
 ----------------------*/
 function createScene() {
+  console.log("THREE inside createScene:", THREE);
+
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
@@ -42,39 +43,39 @@ function createScene() {
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
   scene.add(camera);
 
-  // A simple 3D box that will appear on the tracked image
   const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
   const mat = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
   box = new THREE.Mesh(geo, mat);
-  box.visible = false;  // hidden until image detected
+  box.visible = false;
   scene.add(box);
 
-  // Light
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
   scene.add(light);
+}
+
+/* --------------------
+   FETCH IMAGE
+----------------------*/
+async function fetchImage(url) {
+  const res = await fetch(url);
+  return res.blob();
 }
 
 /* --------------------
    START AR SESSION
 ----------------------*/
 async function startAR() {
-  if (!navigator.xr) {
-    alert("WebXR not supported on this browser/device");
-    return;
-  }
-
-  const imgBitmap = await createImageBitmap(await fetchImage("chocos.png"));
+  const imgBitmap = await createImageBitmap(await fetchImage("marker-image.png"));
 
   xrSession = await navigator.xr.requestSession("immersive-ar", {
     requiredFeatures: ["image-tracking", "local"],
     trackedImages: [{
       image: imgBitmap,
-      widthInMeters: 0.15 // real-world width of your target
+      widthInMeters: 0.15
     }]
   });
 
   renderer.xr.setSession(xrSession);
-
   xrRefSpace = await xrSession.requestReferenceSpace("local");
 
   xrSession.requestAnimationFrame(onXRFrame);
@@ -90,20 +91,15 @@ function onXRFrame(time, frame) {
   const results = frame.getImageTrackingResults();
 
   for (const result of results) {
-    const state = result.trackingState; // "tracked" | "emulated" | "not-tracked"
-    const imageIndex = result.index;    // 0 if your single target
+    const state = result.trackingState;
 
     if (state === "tracked") {
-      trackedImage = result;
-
       const pose = frame.getPose(result.imageSpace, xrRefSpace);
 
-      // attach a Three.js object to the pose
       if (pose) {
-        const mat = new THREE.Matrix4().fromArray(pose.transform.matrix);
-        box.visible = true;
         box.matrixAutoUpdate = false;
-        box.matrix.copy(mat);
+        box.visible = true;
+        box.matrix.fromArray(pose.transform.matrix);
       }
     } else {
       box.visible = false;
@@ -114,15 +110,7 @@ function onXRFrame(time, frame) {
 }
 
 /* --------------------
-   UTILS
-----------------------*/
-async function fetchImage(url) {
-  const res = await fetch(url);
-  return await res.blob();
-}
-
-/* --------------------
-   BUTTON EVENT
+   BUTTON CLICK
 ----------------------*/
 document.getElementById("enter-ar").addEventListener("click", async () => {
   createScene();
