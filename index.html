@@ -1,174 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR Image Tracking</title>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: hidden; }
+    #enter-ar {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 12px 20px; font-size: 16px; border: none; border-radius: 10px;
+      background: #007bff; color: white; cursor: pointer;
+    }
+  </style>
+</head>
 
-<html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-     <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-  </head>
-  <body>
-    <a-scene mindar-image="imageTargetSrc: /targets.mind;" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-      <a-assets>
-	<img id="card" src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png" />
-	<a-asset-item id="avatarModel" src="/anim1.glb"></a-asset-item>
-      </a-assets>
+<body>
+<button id="enter-ar">Enter AR</button>
 
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.min.js"></script>
 
-      <a-entity mindar-image-target="targetIndex: 0">
-      
-        <a-gltf-model rotation="0 0 0" position="0 -0.5 0" scale="0.5 0.5 0.5" src="#avatarModel"
-          animation-mixer=""
-        >
-      </a-entity>
-    </a-scene>
-  </body>
-  <!-- <script>// app.js
-AFRAME.registerComponent('animation-sequence', {
-  schema: {
-    entities: {type: 'array'},
-  },
+<script>
+/* --------------------
+   GLOBAL VARIABLES
+----------------------*/
+let xrSession, renderer, scene, camera;
+let box;              // object to attach to the tracked image
+let trackedImage;     // runtime-tracked image info
+let xrRefSpace;       // reference space
 
-  init() {
-    // Cache entity references
-    this.ents = this.data.entities.map(sel => document.querySelector(sel))
-    this.currentIndex = 0
-    this.sequenceStarted = false
-    this.sequenceCompleted = false
-    this._onAnimFinished = null
+/* --------------------
+   INIT THREE.JS SCENE
+----------------------*/
+function createScene() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-    const scene = this.el.sceneEl
-    scene.addEventListener('loaded', () => {
-      console.log('🎬 Scene fully loaded.')
-      this.setupSequence()
-    })
-  },
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+  scene.add(camera);
 
-  setupSequence() {
-    console.log('✅ Animation sequence ready.')
-    const uiscreen = document.getElementById('ui-screen')
-    const imageTarget = this.el.closest('xrextras-named-image-target')
-    const scene = this.el.sceneEl
+  // A simple 3D box that will appear on the tracked image
+  const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  const mat = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+  box = new THREE.Mesh(geo, mat);
+  box.visible = false;  // hidden until image detected
+  scene.add(box);
 
-    const onFound = () => {
-      console.log('🟢 Image found!')
-      uiscreen.style.transition = 'opacity 0.3s ease'
-      uiscreen.style.opacity = '0'  // Fade out the overlay
-      setTimeout(() => {
-        uiscreen.style.display = 'none'  // Hide after fade
-      }, 300)
-      if (!this.sequenceStarted) {
-        this.sequenceStarted = true
-        this.chainAnimations()
-      } else if (!this.sequenceCompleted) {
-        this.resumeAll()
+  // Light
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
+  scene.add(light);
+}
+
+/* --------------------
+   START AR SESSION
+----------------------*/
+async function startAR() {
+  if (!navigator.xr) {
+    alert("WebXR not supported on this browser/device");
+    return;
+  }
+
+  const imgBitmap = await createImageBitmap(await fetchImage("chocos.png"));
+
+  xrSession = await navigator.xr.requestSession("immersive-ar", {
+    requiredFeatures: ["image-tracking", "local"],
+    trackedImages: [{
+      image: imgBitmap,
+      widthInMeters: 0.15 // real-world width of your target
+    }]
+  });
+
+  renderer.xr.setSession(xrSession);
+
+  xrRefSpace = await xrSession.requestReferenceSpace("local");
+
+  xrSession.requestAnimationFrame(onXRFrame);
+}
+
+/* --------------------
+   FRAME LOOP
+----------------------*/
+function onXRFrame(time, frame) {
+  const session = frame.session;
+  session.requestAnimationFrame(onXRFrame);
+
+  const results = frame.getImageTrackingResults();
+
+  for (const result of results) {
+    const state = result.trackingState; // "tracked" | "emulated" | "not-tracked"
+    const imageIndex = result.index;    // 0 if your single target
+
+    if (state === "tracked") {
+      trackedImage = result;
+
+      const pose = frame.getPose(result.imageSpace, xrRefSpace);
+
+      // attach a Three.js object to the pose
+      if (pose) {
+        const mat = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        box.visible = true;
+        box.matrixAutoUpdate = false;
+        box.matrix.copy(mat);
       }
+    } else {
+      box.visible = false;
     }
+  }
 
-    const onLost = () => {
-      console.log('⏸️ Image lost.')
-      uiscreen.style.display = 'flex'  // Show overlay
-      setTimeout(() => {
-        uiscreen.style.transition = 'opacity 0.3s ease'
-        uiscreen.style.opacity = '1'  // Fade in the overlay
-      }, 10)
-      if (!this.sequenceCompleted) this.pauseAll()
-    }
+  renderer.render(scene, camera);
+}
 
-    // Listen on both the target + scene (for safety)
-    if (imageTarget) {
-      imageTarget.addEventListener('xrimagefound', onFound)
-      imageTarget.addEventListener('xrimagelost', onLost)
-      console.log('🔗 Bound listeners to xrextras-named-image-target.')
-    }
-    scene.addEventListener('xrimagefound', onFound)
-    scene.addEventListener('xrimagelost', onLost)
-  },
+/* --------------------
+   UTILS
+----------------------*/
+async function fetchImage(url) {
+  const res = await fetch(url);
+  return await res.blob();
+}
 
-  playEntity(index) {
-    // Hide all, show only current
-    this.ents.forEach((e, i) => e.setAttribute('visible', i === index))
-    const entity = this.ents[index]
-    if (!entity) return
+/* --------------------
+   BUTTON EVENT
+----------------------*/
+document.getElementById("enter-ar").addEventListener("click", async () => {
+  createScene();
+  await startAR();
+});
+</script>
 
-    const onModelLoaded = () => {
-      const mixerComp = entity.components['animation-mixer']
-      if (mixerComp && mixerComp.mixer) {
-        const {mixer} = mixerComp
-        mixer.stopAllAction()
-        mixer.timeScale = 1
-
-        // Start first clip
-        const actions = Object.values(mixer._actions)
-        if (actions.length > 0) {
-          const action = actions[0]
-          action.reset().play()
-          console.log(`🎥 Playing animation ${index + 1}`)
-        } else {
-          console.warn(`⚠️ No animation clips found in ${entity.id}`)
-        }
-      } else {
-        console.warn(`⚠️ No animation-mixer on ${entity.id}`)
-      }
-    }
-
-    if (entity.hasLoaded) onModelLoaded()
-    else entity.addEventListener('model-loaded', onModelLoaded, {once: true})
-  },
-
-  pauseAll() {
-    this.ents.forEach((e) => {
-      const m = e.components['animation-mixer']
-      if (m && m.mixer) m.mixer.timeScale = 0
-    })
-    console.log('⏸️ Animations paused.')
-  },
-
-  resumeAll() {
-    this.ents.forEach((e) => {
-      const m = e.components['animation-mixer']
-      if (m && m.mixer) m.mixer.timeScale = 1
-    })
-    console.log('▶️ Animations resumed.')
-  },
-
-  chainAnimations() {
-    if (this.sequenceCompleted) return
-
-    const current = this.ents[this.currentIndex]
-    const comp = current.components['animation-mixer']
-    if (!comp || !comp.mixer) {
-      console.warn(`⚠️ No mixer found on entity ${current.id}`)
-      return
-    }
-
-    const {mixer} = comp
-
-    // Remove any old listener
-    if (this._onAnimFinished) mixer.removeEventListener('finished', this._onAnimFinished)
-
-    // New finish handler
-    this._onAnimFinished = () => {
-      this.currentIndex++
-      if (this.currentIndex < this.ents.length) {
-        console.log(`➡️ Moving to animation ${this.currentIndex + 1}`)
-        this.playEntity(this.currentIndex)
-        this.chainAnimations()
-      } else {
-        this.sequenceCompleted = true
-        console.log('🏁 All animations finished successfully!')
-      }
-    }
-
-    mixer.addEventListener('finished', this._onAnimFinished)
-
-    // Play current
-    this.playEntity(this.currentIndex)
-  },
-})
-
-window.addEventListener('load', () => {
-  console.log('🌐 app.js loaded and ready!')
-})
-</script> -->
+</body>
 </html>
