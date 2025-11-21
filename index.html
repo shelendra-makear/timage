@@ -1,130 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebXR Image Target Demo</title>
-  <style>
-    body, html { margin: 0; padding: 0; overflow: hidden; }
-    #enter-ar {
-      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-      padding: 12px 20px; font-size: 16px; border: none; border-radius: 10px;
-      background: #007bff; color: white; cursor: pointer; z-index: 10;
-    }
-  </style>
+  <meta charset="utf-8" />
+  <title>Zappar ImageTarget A-Frame Example</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+
+  <!-- Zappar A-Frame / Universal AR integration (served via jsDelivr) -->
+  <!-- Note: Zappar packages are available on CDNs such as jsDelivr / unpkg -->
+  <script src="https://cdn.jsdelivr.net/npm/@zappar/zappar@latest/dist/zappar.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@zappar/zappar-aframe@latest/dist/zappar-aframe.min.js"></script>
 </head>
 <body>
-<button id="enter-ar">Enter AR</button>
+  <a-scene zappar-camera>
+    <!-- load the target file from public/ -->
+    <a-assets>
+      <a-asset-item id="my-target" src="my-target.zpt"></a-asset-item>
+    </a-assets>
 
-<script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.164.0/examples/jsm/loaders/GLTFLoader.js';
+    <!-- attach content to the image target -->
+    <a-entity zappar-image="target: #my-target">
+      <!-- Example: a simple box that appears on the target -->
+      <a-box position="0 0.5 0" depth="0.1" height="1" width="1"
+             animation="property: rotation; to: 0 360 0; loop: true; dur: 4000"></a-box>
+    </a-entity>
 
-let xrSession, renderer, scene, camera;
-let model;
-let xrRefSpace;
-
-// -------------------- CREATE SCENE --------------------
-function createScene() {
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.xr.enabled = true;
-  document.body.appendChild(renderer.domElement);
-
-  scene = new THREE.Scene();
-
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-  scene.add(camera);
-
-  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
-  scene.add(light);
-}
-
-// -------------------- LOAD GLB MODEL --------------------
-async function loadModel(url) {
-  const loader = new GLTFLoader();
-  return new Promise((resolve, reject) => {
-    loader.load(url, gltf => resolve(gltf.scene), reject);
-  });
-}
-
-// -------------------- FETCH IMAGE --------------------
-async function fetchImage(url) {
-  const res = await fetch(url);
-  return res.blob();
-}
-
-// -------------------- START AR --------------------
-async function startAR() {
-  if (!navigator.xr) {
-    alert("WebXR not supported on this browser.");
-    return;
-  }
-
-  const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
-  if (!isSupported) {
-    alert("AR not supported on this device.");
-    return;
-  }
-
-  const imgBitmap = await createImageBitmap(await fetchImage('marker-image.png'));
-
-  try {
-    xrSession = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['local'],
-      optionalFeatures: ['image-tracking'],
-      trackedImages: [{ image: imgBitmap, widthInMeters: 0.15 }]
-    });
-  } catch (err) {
-    console.error("Failed to start AR session:", err);
-    alert("AR session could not start. Your browser may not support image tracking.");
-    return;
-  }
-
-  renderer.xr.setSession(xrSession);
-  xrRefSpace = await xrSession.requestReferenceSpace('local');
-
-  xrSession.requestAnimationFrame(onXRFrame);
-}
-
-// -------------------- FRAME LOOP --------------------
-function onXRFrame(time, frame) {
-  const session = frame.session;
-  session.requestAnimationFrame(onXRFrame);
-
-  if (!model) return;
-
-  const results = frame.getImageTrackingResults();
-
-  for (const result of results) {
-    const state = result.trackingState;
-
-    if (state === 'tracked') {
-      const pose = frame.getPose(result.imageSpace, xrRefSpace);
-      if (pose) {
-        model.matrixAutoUpdate = false;
-        model.visible = true;
-        model.matrix.fromArray(pose.transform.matrix);
-      }
-    } else {
-      model.visible = false;
-    }
-  }
-
-  renderer.render(scene, camera);
-}
-
-// -------------------- BUTTON CLICK --------------------
-document.getElementById('enter-ar').addEventListener('click', async () => {
-  createScene();
-
-  model = await loadModel('anim1.glb'); // replace with your model
-  model.scale.set(0.1, 0.1, 0.1);
-  model.visible = false;
-  scene.add(model);
-
-  await startAR();
-});
-</script>
+    <!-- The camera is handled by zappar-camera -->
+  </a-scene>
 </body>
 </html>
