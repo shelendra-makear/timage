@@ -1,31 +1,176 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Zappar ImageTarget A-Frame Example</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-
-  <!-- Zappar A-Frame / Universal AR integration (served via jsDelivr) -->
-  <!-- Note: Zappar packages are available on CDNs such as jsDelivr / unpkg -->
-  <script src="https://cdn.jsdelivr.net/npm/@zappar/zappar@latest/dist/zappar.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@zappar/zappar-aframe@latest/dist/zappar-aframe.min.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+  <title>MindAR — Optimized Image Target Example</title>
+ 
+  <style>
+    html, body { height:100%; margin:0; background:#000; }
+    #overlay {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      z-index: 5;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 10px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    #lostHint {
+      position: absolute;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      z-index: 5;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-family: Arial, sans-serif;
+      display: none;
+    }
+    a-scene { width:100%; height:100%; }
+  </style>
 </head>
 <body>
-  <a-scene zappar-camera>
-    <!-- load the target file from public/ -->
-    <a-assets>
-      <a-asset-item id="my-target" src="my-target.zpt"></a-asset-item>
-    </a-assets>
-
-    <!-- attach content to the image target -->
-    <a-entity zappar-image="target: #my-target">
-      <!-- Example: a simple box that appears on the target -->
-      <a-box position="0 0.5 0" depth="0.1" height="1" width="1"
-             animation="property: rotation; to: 0 360 0; loop: true; dur: 4000"></a-box>
+  <div id="overlay">Status: <span id="status">Initializing…</span></div>
+  <div id="lostHint">Move camera closer to the target • improve lighting</div>
+ 
+  <!-- A-Frame and MindAR (production builds) -->
+  <!-- Replace versions/URLs with local copies if you bundle them -->
+  <script src="https://unpkg.com/aframe@1.5.0/dist/aframe.min.js"></script>
+  <script src="https://unpkg.com/mind-ar@1.1.6/dist/mindar-image-aframe.prod.js"></script>
+ 
+  <!-- The scene -->
+  <a-scene
+    mindar-image="imageTargetSrc: ./target.mind; maxTrack: 1; uiEnabled: false; smoothed: true;"
+    vr-mode-ui="enabled: false"
+    embedded
+    renderer="antialias: false; precision: mediump; powerPreference: low-power;"
+    loading-screen="enabled: false"
+    >
+    <!-- Camera (A-Frame's mindar camera is injected automatically for mind-ar) -->
+    <a-entity camera></a-entity>
+ 
+    <!-- MindAR target entity with smoothing parameters -->
+    <!-- Note: `smooth` attributes below are applied as custom data; some MindAR builds accept smoothed:true in mindar-image, others use custom attr handlers -->
+    <a-entity mindar-image-target="targetIndex: 0" id="target-root"
+              smooth="true"
+              smoothCount="8"
+              smoothTolerance="0.01"
+              smoothThreshold="5"
+              visible="false">
+      <!-- A very lightweight 3D object to show (low poly glTF recommended) -->
+      <!-- Replace with your own low-poly model and keep textures small (<= 1024) -->
+      <a-gltf-model
+        id="model"
+        src="./anim1.glb"
+        position="0 0 0"
+        rotation="0 0 0"
+        scale="0.7 0.7 0.7"
+        animation-mixer
+        >
+      </a-gltf-model>
+ 
+      <!-- Optional: a simple A-Frame primitive fallback -->
+      <a-box id="fallback-box" position="0 0 0" rotation="0 45 0" depth="0.05" height="0.05" width="0.05" visible="false"></a-box>
     </a-entity>
-
-    <!-- The camera is handled by zappar-camera -->
+ 
+    <!-- Light: use single directional + ambient, no shadows (shadows are expensive) -->
+    <a-entity light="type: ambient; intensity: 0.6"></a-entity>
+    <a-entity light="type: directional; intensity: 0.8" position="0 1 1"></a-entity>
   </a-scene>
+ 
+  <script>
+    // Quick helpers & performance measures
+    const statusEl = document.getElementById('status');
+    const lostHint = document.getElementById('lostHint');
+ 
+    // ---------- Reduce rendering load: pause rendering when not visible ----------
+    // This reduces CPU/GPU while the page is in background or screen off (mobile)
+    document.addEventListener('visibilitychange', () => {
+      const scene = document.querySelector('a-scene');
+      if (!scene) return;
+      if (document.hidden) {
+        // Pause rAF updates in A-Frame
+        scene.pause();
+        statusEl.textContent = 'Paused (background)';
+      } else {
+        scene.play();
+        statusEl.textContent = 'Resumed';
+      }
+    });
+ 
+    // ---------- MindAR events ----------
+    // MindAR dispatches custom events: "targetFound" and "targetLost"
+    // Use them to show UI/hints and to enable light rendering effects only when visible
+    document.addEventListener('targetFound', (ev) => {
+      // ev.detail?.targetIndex may be available depending on MindAR build
+      statusEl.textContent = 'Target FOUND';
+      lostHint.style.display = 'none';
+      const root = document.getElementById('target-root');
+      if (root) root.setAttribute('visible', 'true');
+ 
+      // Optionally: reduce model animations and update frequency if needed
+      // Example: start model animation or enable detailed textures
+    });
+ 
+    document.addEventListener('targetLost', (ev) => {
+      statusEl.textContent = 'Target LOST';
+      lostHint.style.display = 'block';
+      const root = document.getElementById('target-root');
+      if (root) root.setAttribute('visible', 'false');
+ 
+      // Optionally: degrade visuals - stop animations to save CPU/GPU
+      // e.g. const model = document.getElementById('model'); model.pause() ...
+    });
+ 
+    // ---------- Camera & permission prompt improvements (mobile) ----------
+    // On iOS Chrome / Safari you might need a user gesture before camera access.
+    // Prompt user to tap anywhere the first time to warm up the camera if start fails.
+    window.addEventListener('load', () => {
+      // If MindAR fails to start automatically, present a small instruction
+      setTimeout(() => {
+        if (statusEl.textContent.includes('Initializing')) {
+          statusEl.textContent = 'Tap screen to enable camera (if required)';
+          // Optionally attach a one-time touch listener:
+          const once = () => {
+            // Try to play media or request permission if needed
+            document.removeEventListener('touchstart', once);
+            statusEl.textContent = 'Trying to start camera…';
+          };
+          document.addEventListener('touchstart', once, { once: true });
+        }
+      }, 1200);
+    });
+ 
+    // ---------- Optional: frame throttling for low-end devices ----------
+    // Lower render rate to threshold to reduce jitter when CPU is saturated.
+    // NOTE: don't change A-Frame internal rAF; instead, throttle heavy updates only.
+    let lastUpdate = performance.now();
+    const minFrameDelta = 1000 / 30; // 30 fps target when under load
+    function throttledTick(now) {
+      if (now - lastUpdate < minFrameDelta) {
+        requestAnimationFrame(throttledTick);
+        return;
+      }
+      lastUpdate = now;
+      // put any expensive per-frame tasks here (physics, texture updates)
+      requestAnimationFrame(throttledTick);
+    }
+    requestAnimationFrame(throttledTick);
+ 
+    // ---------- Debug helper: log model load sizes (helps optimize) ----------
+    const gltf = document.getElementById('model');
+    if (gltf) {
+      gltf.addEventListener('model-loaded', (e) => {
+        console.log('Model loaded, scene graph:', e.detail?.model || 'no detail');
+        statusEl.textContent = 'Model loaded';
+      });
+    }
+  </script>
 </body>
 </html>
